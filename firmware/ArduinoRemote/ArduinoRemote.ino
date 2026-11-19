@@ -29,6 +29,7 @@
 #include <BLEService.h>
 #include <BLECharacteristic.h>
 #include <BLE2902.h>
+#include <BLEAdvertising.h>
 
 // ESP-IDF GAP function to set the BLE device name at runtime
 extern "C" uint8_t esp_ble_gap_set_device_name(const char *name);
@@ -284,9 +285,19 @@ void setup() {
 
   pService->start();
 
+  // --- Explicit advertisement data so the device NAME shows in the Bluetooth menu ---
+  BLEAdvertisementData advData;
+  advData.setFlags(0x06);  // General discoverable + BR/EDR not supported
+  advData.setName(deviceName);  // <-- this makes the name appear in the scan list
+  advData.setCompleteServices(BLEUUID(String(SERVICE_UUID)));
+
+  BLEAdvertisementData scanData;
+  scanData.setName(deviceName);  // name also in scan response (Windows reads this)
+  scanData.setCompleteServices(BLEUUID(String(SERVICE_UUID)));
+
   BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
+  pAdvertising->setAdvertisementData(advData);
+  pAdvertising->setScanResponseData(scanData);
   pAdvertising->setMinPreferred(0x06);  // helps iOS connect
   BLEDevice::startAdvertising();
 
