@@ -27,7 +27,8 @@
     box-shadow: 0 0 30px rgba(69,162,158,0.12);
   }
   h1 { color: #66fcf1; font-size: 1.5rem; margin-bottom: 8px; }
-  p.sub { color: #888; font-size: 0.85rem; margin-bottom: 24px; text-align:center; }
+  #deviceName { color: #66fcf1; font-size: 1rem; font-weight: 700; margin-bottom: 12px; text-align:center; }
+  p.sub { color: #888; font-size: 0.85rem; margin-bottom: 20px; text-align:center; }
   .status { font-size: 0.8rem; color: #45a29e; margin-bottom: 16px; text-align:center; height: 1rem; }
   .status.connected { color: #66fcf1; }
   .status.disconnected { color: #fb507b; }
@@ -62,7 +63,32 @@
     margin-bottom: 14px;
   }
   .connect:disabled { opacity: 0.5; }
-  .hint { font-size: 0.75rem; color: #666; text-align:center; line-height: 1.4; }
+  .rename-section {
+    border-top: 1px solid #45a29e;
+    padding-top: 16px;
+    margin-top: 16px;
+  }
+  .rename-section h3 { color: #66fcf1; font-size: 0.95rem; margin-bottom: 10px; }
+  .rename-input {
+    width: 100%;
+    background: #0b0c10;
+    border: 1px solid #45a29e;
+    border-radius: 8px;
+    color: #c5c6c7;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    margin-bottom: 10px;
+    font-family: inherit;
+  }
+  .rename-input:focus { outline: none; border-color: #66fcf1; }
+  button.rename {
+    width: 100%;
+    background: #45a29e;
+    padding: 12px 0;
+    font-size: 0.95rem;
+  }
+  button.rename:disabled { opacity: 0.5; cursor: not-allowed; }
+  .hint { font-size: 0.75rem; color: #666; text-align:center; line-height: 1.4; margin-top: 12px; }
   code { color: #45a29e; }
 </style>
 </head>
@@ -70,6 +96,7 @@
 
 <div class="card">
   <h1>ArduinoRemote</h1>
+  <div id="deviceName">ArduinoRemote</div>
   <p class="sub">ESP32-C3 BLE remote &mdash; Forward / Back</p>
 
   <div id="status" class="status disconnected">Not connected</div>
@@ -81,6 +108,12 @@
     <button id="btnBack" class="back" disabled>Back &darr;</button>
   </div>
 
+  <div class="rename-section">
+    <h3>Rename device</h3>
+    <input type="text" id="renameInput" class="rename-input" placeholder="New device name" maxlength="31">
+    <button id="btnRename" class="rename" disabled>Rename</button>
+  </div>
+
   <p class="hint">Tap &ldquo;Connect&rdquo; and choose <code>ArduinoRemote</code>.<br>
   Press Forward / Back to send commands over BLE.<br>
   Status LED flashes on each press.</p>
@@ -89,14 +122,21 @@
 <script>
 const SERVICE_UUID  = '7f4f1234-1234-1234-1234-123456789abc';
 const CHAR_TX_UUID  = '7f4f1236-1234-1234-1234-123456789abc'; // notify (ESP32 -> host)
+const CHAR_RX_UUID  = '7f4f1235-1234-1234-1234-123456789abc'; // write (host -> ESP32)
+const CHAR_RN_UUID  = '7f4f1237-1234-1234-1234-123456789abc'; // write new name (rename)
 
 let txChar = null;
+let rxChar = null;
+let rnChar = null;
 let connected = false;
 
 const statusEl = document.getElementById('status');
 const connectBtn = document.getElementById('connect');
 const fwdBtn = document.getElementById('btnForward');
 const backBtn = document.getElementById('btnBack');
+const renameInput = document.getElementById('renameInput');
+const btnRename = document.getElementById('btnRename');
+const deviceNameEl = document.getElementById('deviceName');
 
 function setStatus(txt, cls) {
   statusEl.textContent = txt;
@@ -106,6 +146,8 @@ function setStatus(txt, cls) {
 function enableControls(en) {
   fwdBtn.disabled = !en;
   backBtn.disabled = !en;
+  btnRename.disabled = !en;
+  renameInput.disabled = !en;
   connectBtn.textContent = en ? 'Connected &mdash; disconnect' : 'Connect to ArduinoRemote';
 }
 
@@ -116,14 +158,20 @@ async function connect() {
         filters: [{ name: 'ArduinoRemote' }],
         optionalServices: [SERVICE_UUID]
       });
+      deviceNameEl.textContent = device.name || 'ArduinoRemote';
+
       const server = await device.gatt.connect();
       const service = await server.getPrimaryService(SERVICE_UUID);
       txChar = await service.getCharacteristic(CHAR_TX_UUID);
+      rxChar = await service.getCharacteristic(CHAR_RX_UUID);
+      rnChar = await service.getCharacteristic(CHAR_RN_UUID);
       await txChar.startNotifications();
       txChar.addEventListener('characteristicvaluechanged', handleNotify);
       connected = true;
-      setStatus('Connected to ' + device.name, 'connected');
+      setStatus('Connected to ' + (device.name || 'ArduinoRemote'), 'connected');
       enableControls(true);
+
+      server.addEventListener('gattserverdisconnected', onDisconnected);
     } catch (err) {
       console.error(err);
       setStatus('Connection failed: ' + err.message, 'disconnected');
@@ -133,13 +181,24 @@ async function connect() {
     enableControls(false);
     setStatus('Not connected', 'disconnected');
     txChar = null;
+    rxChar = null;
+    rnChar = null;
   }
 }
 
-function send(cmd) {
-  if (!connected || !txChar) return;
-  const data = new Uint8Array([cmd.charCodeAt(0)]);
-  txChar.writeValue(data).catch(err => console.error('write failed', err));
+function onDisconnected() {
+  connected = false;
+  enableControls(false);
+  setStatus('Disconnected', 'disconnected');
+  txChar = null;
+  rxChar = null;
+  rnChar = null;
+}
+
+function send(cmdChar) {
+  if (!connected || !rxChar) return;
+  const data = new Uint8Array([cmdChar.charCodeAt(0)]);
+  rxChar.writeValue(data).catch(err => console.error('write failed', err));
 }
 
 function handleNotify(event) {
@@ -149,11 +208,36 @@ function handleNotify(event) {
   console.log('notify:', cmd);
 }
 
+async function renameDevice() {
+  if (!connected || !rnChar) return;
+  const newName = renameInput.value.trim();
+  if (!newName || newName.length > 31) {
+    setStatus('Name must be 1-31 characters', 'disconnected');
+    return;
+  }
+  try {
+    const encoder = new TextEncoder();
+    await rnChar.writeValue(encoder.encode(newName));
+    setStatus('Renaming to &ldquo;' + newName + '&rdquo;&hellip;', 'connected');
+    // Device restarts with new name; connection drops
+    setTimeout(() => {
+      connected = false;
+      enableControls(false);
+      setStatus('Device restarted. Reconnect to &ldquo;' + newName + '&rdquo;', 'connected');
+    }, 1500);
+  } catch (err) {
+    console.error(err);
+    setStatus('Rename failed: ' + err.message, 'disconnected');
+  }
+}
+
 connectBtn.addEventListener('click', connect);
 fwdBtn.addEventListener('mousedown', () => send('F'));
 fwdBtn.addEventListener('touchstart', (e) => { e.preventDefault(); send('F'); }, {passive:false});
 backBtn.addEventListener('mousedown', () => send('B'));
 backBtn.addEventListener('touchstart', (e) => { e.preventDefault(); send('B'); }, {passive:false});
+btnRename.addEventListener('click', renameDevice);
+renameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') renameDevice(); });
 
 // Web Bluetooth requires a secure context (HTTPS or localhost)
 if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {

@@ -34,10 +34,22 @@ Replace `COM3` with your serial port. Or open the `.ino` in the Arduino IDE, pic
 - Service: `7f4f1234-1234-1234-1234-123456789abc`
 - RX (write): `7f4f1235-...` &mdash; host sends `F` (forward), `B` (back), `S` (stop)
 - TX (notify): `7f4f1236-...` &mdash; ESP32 echoes each command back
+- RN (write): `7f4f1237-...` &mdash; host writes a new device name string to rename the BLE device. Name is stored in ESP32 Preferences (NVS) and survives reboot. Device soft-reboots after rename.
+
+## Renaming the device
+
+The BLE device name is stored in ESP32 Preferences (NVS), so it survives reboot. To rename:
+
+1. Open `docs/controller.html` and tap **Connect**.
+2. Type a new name (1&ndash;31 characters) in the **Rename device** field.
+3. Tap **Rename**. The firmware stores the name in NVS, confirms via the TX characteristic, then restarts.
+4. After restart, the device advertises under the new name. Reconnect to it.
+
+> Renaming causes a soft-reboot so the new name takes effect in BLE advertising. Any active connection will drop.
 
 ## Controller
 
-Open `docs/controller.html` (served over HTTPS, e.g. GitHub Pages) &rarr; tap **Connect** &rarrow; choose `ArduinoRemote` &rarr; press Forward / Back.
+Open `docs/controller.html` (served over HTTPS, e.g. GitHub Pages) &rarr; tap **Connect** &rarr; choose `ArduinoRemote` &rarr; press Forward / Back.
 
 ## License
 

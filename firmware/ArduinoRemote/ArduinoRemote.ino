@@ -23,39 +23,51 @@
  */
 
 #include <Arduino.h>
+#include <Preferences.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEService.h>
 #include <BLECharacteristic.h>
 #include <BLE2902.h>
 
+// ESP-IDF GAP function to set the BLE device name at runtime
+extern "C" uint8_t esp_ble_gap_set_device_name(const char *name);
+
 // ===========================================================================
 // CONFIG
 // ===========================================================================
-static const char* DEVICE_NAME = "ArduinoRemote";
+static const char* DEFAULT_DEVICE_NAME = "ArduinoRemote";
 
-// Buttons are active LOW: wire one side of each push-button to GND,
-// the other side to the GPIO below (internal pull-up enabled).
+// Preferences (NVS) storage for the device name
+static const char* PREF_NAMESPACE = "arduinoremote";
+static const char* PREF_KEY_NAME  = "name";
+static const size_t MAX_DEVICE_NAME_LEN = 31;  // BLE device name max
+
+// Buttons (active LOW, wire to GND, internal pull-up)
 static const uint8_t BUTTON_FORWARD_PIN = 8;
 static const uint8_t BUTTON_BACK_PIN    = 9;
 
-// Status LED (set to 255 to disable)
+// Status LED (set 255 to disable)
 static const uint8_t LED_PIN = 10;
 
 // BLE service / characteristic UUIDs (128-bit)
-static const char* SERVICE_UUID        = "7f4f1234-1234-1234-1234-123456789abc";
-static const char* CHARACTERISTIC_RX_UUID = "7f4f1235-1234-1234-1234-123456789abc"; // write (host -> ESP32)
-static const char* CHARACTERISTIC_TX_UUID = "7f4f1236-1234-1234-1234-123456789abc"; // notify (ESP32 -> host)
+static const char* SERVICE_UUID          = "7f4f1234-1234-1234-1234-123456789abc";
+static const char* CHARACTERISTIC_RX_UUID   = "7f4f1235-1234-1234-1234-123456789abc"; // write commands
+static const char* CHARACTERISTIC_TX_UUID   = "7f4f1236-1234-1234-1234-123456789abc"; // notify responses
+static const char* CHARACTERISTIC_RENAME_UUID = "7f4f1237-1234-1234-1234-123456789abc"; // write new name
 
 // Commands sent over BLE
-static const char CMD_FORWARD = 'F';
-static const char CMD_BACK    = 'B';
-static const char CMD_STOP    = 'S';
+static const char CMD_FORWARD  = 'F';
+static const char CMD_BACK     = 'B';
+static const char CMD_STOP     = 'S';
+static const char CMD_RENAME_OK    = 'R'; // rename succeeded
+static const char CMD_RENAME_FAIL  = 'r'; // rename failed
 
 static const uint32_t DEBOUNCE_MS = 50;
 
-// Forward declaration (used by RxCallbacks before definition)
+// Forward declarations
 static void handleCommand(char cmd);
+static void restartWithNewName();
 
 // ===========================================================================
 // BLE globals
@@ -64,9 +76,17 @@ static BLEServer* pServer = nullptr;
 static BLEService* pService = nullptr;
 static BLECharacteristic* pRxChar = nullptr;
 static BLECharacteristic* pTxChar = nullptr;
+static BLECharacteristic* pRenameChar = nullptr;
 
 static bool deviceConnected = false;
 static bool oldDeviceConnected = false;
+static bool pendingRestart = false;
+
+// Device name (loaded from Preferences, mutable)
+static char deviceName[32] = {0};
+
+// Preferences (NVS)
+static Preferences preferences;
 
 // ===========================================================================
 // Button state
@@ -133,6 +153,49 @@ static void handleCommand(char cmd) {
 }
 
 // ===========================================================================
+// Rename characteristic callbacks (host writes a new device name)
+// ===========================================================================
+class RenameCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* c) override {
+    String value = c->getValue();
+    if (value.length() == 0 || value.length() > MAX_DEVICE_NAME_LEN) {
+      Serial.println("[RENAME] Invalid name length");
+      if (pTxChar && deviceConnected) {
+        char fail = CMD_RENAME_FAIL;
+        pTxChar->setValue((const uint8_t*)&fail, 1);
+        pTxChar->notify();
+      }
+      return;
+    }
+
+    // Copy into a null-terminated char buffer
+    char newName[32] = {0};
+    value.toCharArray(newName, sizeof(newName));
+
+    // Store in Preferences (NVS) so it survives reboot
+    preferences.begin(PREF_NAMESPACE, false);  // false = read/write
+    preferences.putString(PREF_KEY_NAME, newName);
+    preferences.end();
+
+    // Update in-memory name
+    strncpy(deviceName, newName, sizeof(deviceName) - 1);
+    deviceName[sizeof(deviceName) - 1] = '\0';
+
+    Serial.print("[RENAME] New name: ");
+    Serial.println(deviceName);
+
+    // Confirm to host, then schedule advertising restart with new name
+    if (pTxChar && deviceConnected) {
+      char ok = CMD_RENAME_OK;
+      pTxChar->setValue((const uint8_t*)&ok, 1);
+      pTxChar->notify();
+    }
+
+    pendingRestart = true;
+  }
+};
+
+// ===========================================================================
 // Helpers
 // ===========================================================================
 static void sendNotify(char cmd) {
@@ -153,6 +216,14 @@ static void blinkLED(uint8_t times, uint16_t ms) {
   }
 }
 
+// Restart the device so it boots with the new BLE name.
+static void restartWithNewName() {
+  Serial.print("[BLE] Restarting with new name: ");
+  Serial.println(deviceName);
+  delay(100);
+  ESP.restart();
+}
+
 // ===========================================================================
 // setup
 // ===========================================================================
@@ -165,13 +236,27 @@ void setup() {
   pinMode(BUTTON_FORWARD_PIN, INPUT_PULLUP);
   pinMode(BUTTON_BACK_PIN,    INPUT_PULLUP);
 
+  Serial.print("Device name: ");
+  Serial.println(deviceName);
+
+  // --- Load device name from Preferences (NVS) ---
+  preferences.begin(PREF_NAMESPACE, true);  // true = read-only
+  String savedName = preferences.getString(PREF_KEY_NAME, DEFAULT_DEVICE_NAME);
+  preferences.end();
+  if (savedName.length() > 0 && savedName.length() <= MAX_DEVICE_NAME_LEN) {
+    savedName.toCharArray(deviceName, sizeof(deviceName));
+  } else {
+    strncpy(deviceName, DEFAULT_DEVICE_NAME, sizeof(deviceName) - 1);
+    deviceName[sizeof(deviceName) - 1] = '\0';
+  }
+
   Serial.println();
   Serial.println("=== ArduinoRemote (ESP32-C3) ===");
   Serial.print("Device name: ");
-  Serial.println(DEVICE_NAME);
+  Serial.println(deviceName);
 
   // --- BLE ---
-  BLEDevice::init(DEVICE_NAME);
+  BLEDevice::init(deviceName);
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
 
@@ -184,11 +269,18 @@ void setup() {
       BLECharacteristic::PROPERTY_WRITE_NR);
   pRxChar->setCallbacks(new RxCallbacks());
 
-  // TX: ESP32 notifies host of button presses / echoes commands
+  // TX: ESP32 notifies host of button presses / echoes / rename status
   pTxChar = pService->createCharacteristic(
       CHARACTERISTIC_TX_UUID,
       BLECharacteristic::PROPERTY_NOTIFY);
   pTxChar->addDescriptor(new BLE2902());
+
+  // RN: host writes a new device name to rename the BLE device
+  pRenameChar = pService->createCharacteristic(
+      CHARACTERISTIC_RENAME_UUID,
+      BLECharacteristic::PROPERTY_WRITE |
+      BLECharacteristic::PROPERTY_WRITE_NR);
+  pRenameChar->setCallbacks(new RenameCallbacks());
 
   pService->start();
 
@@ -199,7 +291,7 @@ void setup() {
   BLEDevice::startAdvertising();
 
   Serial.print("BLE advertising started. Connect to ");
-  Serial.println(DEVICE_NAME);
+  Serial.println(deviceName);
   blinkLED(2, 150);
 }
 
@@ -216,6 +308,12 @@ void loop() {
   }
   if (deviceConnected && !oldDeviceConnected) {
     oldDeviceConnected = deviceConnected;
+  }
+
+  // Restart the device with a new name after a rename
+  if (pendingRestart) {
+    pendingRestart = false;
+    restartWithNewName();
   }
 
   // Scan buttons with debounce

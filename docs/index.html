@@ -96,9 +96,22 @@ $ arduino-cli upload -p COM3 --fqbn esp32:esp32:makergo_c3_supermini firmware/Ar
     <tr><td><code>7f4f1234-1234-1234-1234-123456789abc</code></td><td>Service</td><td>&mdash;</td><td>&mdash;</td></tr>
     <tr><td><code>7f4f1235-1234-1234-1234-123456789abc</code></td><td>RX (host &rarr; ESP32)</td><td>WRITE, WRITE_NR</td><td><code>F</code> Forward &bull; <code>B</code> Back &bull; <code>S</code> Stop</td></tr>
     <tr><td><code>7f4f1236-1234-1234-1234-123456789abc</code></td><td>TX (ESP32 &rarr; host)</td><td>NOTIFY</td><td>Echo of the command just received</td></tr>
+    <tr><td><code>7f4f1237-1234-1234-1234-123456789abc</code></td><td>RN (host &rarr; ESP32)</td><td>WRITE, WRITE_NR</td><td>New device name string (rename; stored in NVS)</td></tr>
   </tbody>
 </table>
 <p>Example (Web Bluetooth): write a single byte <code>0x46</code> ('F') to the RX characteristic; the ESP32 notifies back <code>0x46</code> on the TX characteristic.</p>
+
+<h2>4.5. Renaming the device</h2>
+<p>
+  The BLE device name is stored in ESP32 Preferences (NVS), so it survives reboot. To rename:
+</p>
+<ol>
+  <li>Open <a href="controller.html">controller.html</a> and tap <em>Connect</em>.</li>
+  <li>Type a new name (1&ndash;31 characters) in the <em>Rename device</em> field.</li>
+  <li>Tap <em>Rename</em>. The firmware writes the name to NVS, confirms via the TX characteristic, then restarts.</li>
+  <li>After restart, the device advertises under the new name. Reconnect to it.</li>
+</ol>
+<p class="warn">Renaming causes the ESP32 to soft-reboot so the new name takes effect in BLE advertising. Any active connection will drop.</p>
 
 <h2>5. Repository layout</h2>
 <pre>
