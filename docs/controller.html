@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArduinoRemote Controller</title>
+<meta name="description" content="Web Bluetooth controller for the ArduinoRemote ESP32-C3 BLE remote — Forward and Back buttons.">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #0b0c10;
+    color: #c5c6c7;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  .card {
+    background: #1f2833;
+    border: 1px solid #45a29e;
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 420px;
+    width: 92%;
+    box-shadow: 0 0 30px rgba(69,162,158,0.12);
+  }
+  h1 { color: #66fcf1; font-size: 1.5rem; margin-bottom: 8px; }
+  p.sub { color: #888; font-size: 0.85rem; margin-bottom: 24px; text-align:center; }
+  .status { font-size: 0.8rem; color: #45a29e; margin-bottom: 16px; text-align:center; height: 1rem; }
+  .status.connected { color: #66fcf1; }
+  .status.disconnected { color: #fb507b; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+  button {
+    background: #45a29e;
+    border: none;
+    border-radius: 12px;
+    color: #0b0c10;
+    font-weight: 700;
+    font-size: 1.1rem;
+    padding: 24px 0;
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.05s, filter 0.1s;
+  }
+  button:active { transform: scale(0.96); filter: brightness(1.15); }
+  button.forward { background: #45a29e; }
+  button.back    { background: #c5c6c7; color: #0b0c10; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .connect {
+    width: 100%;
+    background: #66fcf1;
+    color: #0b0c10;
+    border: none;
+    border-radius: 10px;
+    font-weight: 700;
+    padding: 12px 0;
+    cursor: pointer;
+    margin-bottom: 14px;
+  }
+  .connect:disabled { opacity: 0.5; }
+  .hint { font-size: 0.75rem; color: #666; text-align:center; line-height: 1.4; }
+  code { color: #45a29e; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>ArduinoRemote</h1>
+  <p class="sub">ESP32-C3 BLE remote &mdash; Forward / Back</p>
+
+  <div id="status" class="status disconnected">Not connected</div>
+
+  <button id="connect" class="connect">Connect to ArduinoRemote</button>
+
+  <div class="btns">
+    <button id="btnForward" class="forward" disabled>Forward &uarr;</button>
+    <button id="btnBack" class="back" disabled>Back &darr;</button>
+  </div>
+
+  <p class="hint">Tap &ldquo;Connect&rdquo; and choose <code>ArduinoRemote</code>.<br>
+  Press Forward / Back to send commands over BLE.<br>
+  Status LED flashes on each press.</p>
+</div>
+
+<script>
+const SERVICE_UUID  = '7f4f1234-1234-1234-1234-123456789abc';
+const CHAR_TX_UUID  = '7f4f1236-1234-1234-1234-123456789abc'; // notify (ESP32 -> host)
+
+let txChar = null;
+let connected = false;
+
+const statusEl = document.getElementById('status');
+const connectBtn = document.getElementById('connect');
+const fwdBtn = document.getElementById('btnForward');
+const backBtn = document.getElementById('btnBack');
+
+function setStatus(txt, cls) {
+  statusEl.textContent = txt;
+  statusEl.className = 'status ' + cls;
+}
+
+function enableControls(en) {
+  fwdBtn.disabled = !en;
+  backBtn.disabled = !en;
+  connectBtn.textContent = en ? 'Connected &mdash; disconnect' : 'Connect to ArduinoRemote';
+}
+
+async function connect() {
+  if (!connected) {
+    try {
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ name: 'ArduinoRemote' }],
+        optionalServices: [SERVICE_UUID]
+      });
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      txChar = await service.getCharacteristic(CHAR_TX_UUID);
+      await txChar.startNotifications();
+      txChar.addEventListener('characteristicvaluechanged', handleNotify);
+      connected = true;
+      setStatus('Connected to ' + device.name, 'connected');
+      enableControls(true);
+    } catch (err) {
+      console.error(err);
+      setStatus('Connection failed: ' + err.message, 'disconnected');
+    }
+  } else {
+    connected = false;
+    enableControls(false);
+    setStatus('Not connected', 'disconnected');
+    txChar = null;
+  }
+}
+
+function send(cmd) {
+  if (!connected || !txChar) return;
+  const data = new Uint8Array([cmd.charCodeAt(0)]);
+  txChar.writeValue(data).catch(err => console.error('write failed', err));
+}
+
+function handleNotify(event) {
+  const value = event.target.value;
+  if (!value) return;
+  const cmd = String.fromCharCode(value.getUint8(0));
+  console.log('notify:', cmd);
+}
+
+connectBtn.addEventListener('click', connect);
+fwdBtn.addEventListener('mousedown', () => send('F'));
+fwdBtn.addEventListener('touchstart', (e) => { e.preventDefault(); send('F'); }, {passive:false});
+backBtn.addEventListener('mousedown', () => send('B'));
+backBtn.addEventListener('touchstart', (e) => { e.preventDefault(); send('B'); }, {passive:false});
+
+// Web Bluetooth requires a secure context (HTTPS or localhost)
+if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+  setStatus('HTTPS required for Web Bluetooth', 'disconnected');
+  connectBtn.disabled = true;
+  connectBtn.textContent = 'Serve over HTTPS to connect';
+}
+</script>
+
+</body>
+</html>

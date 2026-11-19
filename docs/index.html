@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArduinoRemote &mdash; ESP32-C3 BLE Remote</title>
+<meta name="description" content="Two-button Bluetooth Low Energy remote for the ESP32-C3 SuperMini. Forward / Back commands over BLE.">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b0c10; color:#c5c6c7; line-height:1.6; }
+  .container { max-width: 860px; margin: 40px auto; padding: 0 20px; }
+  header { border-bottom: 1px solid #45a29e; padding-bottom: 16px; margin-bottom: 28px; }
+  header h1 { color:#66fcf1; font-size: 1.75rem; margin-bottom: 6px; }
+  header p { color:#888; font-size: 0.95rem; }
+  h2 { color:#45a29e; font-size: 1.25rem; margin: 24px 0 10px; border-left: 4px solid #66fcf1; padding-left: 10px; }
+  h3 { color:#c5c6c7; font-size: 1.05rem; margin: 18px 0 6px; }
+  p { margin: 0 0 14px; }
+  a { color:#66fcf1; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .btn { display:inline-block; background:#45a29e; color:#0b0c10; padding: 8px 16px; border-radius: 6px; font-weight:700; text-decoration:none; margin-right:8px; margin-bottom:8px; }
+  .btn:hover { background:#66fcf1; }
+  pre { background:#1f2833; border:1px solid #45a29e; border-radius:8px; padding:14px; overflow-x:auto; margin: 0 0 16px; font-size:0.85rem; }
+  code { color:#66fcf1; font-family: ui-monospace, SFMono-Regular, monospace; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 20px 0; }
+  .card { background:#1f2833; border:1px solid #45a29e; border-radius:10px; padding:16px; }
+  .card h4 { color:#66fcf1; margin-bottom:8px; font-size:1rem; }
+  .card p { font-size:0.9rem; color:#888; margin:0; }
+  .warn { color:#fb507b; }
+  table { width:100%; border-collapse: collapse; margin: 12px 0 20px; font-size:0.9rem; }
+  th, td { border:1px solid #45a29e; padding:8px 10px; text-align:left; }
+  th { background:#1f2833; color:#66fcf1; }
+  .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #45a29e; font-size:0.8rem; color:#666; text-align:center; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<header>
+  <h1>ArduinoRemote</h1>
+  <p>ESP32-C3 SuperMini &bull; Bluetooth Low Energy &bull; Forward / Back remote control</p>
+</header>
+
+<p>
+  <strong>ArduinoRemote</strong> is a tiny BLE remote-control firmware for the ESP32-C3 (SuperMini). Two physical buttons &mdash; <strong>Forward</strong> and <strong>Back</strong> &mdash; send single-character commands over Bluetooth Low Energy to a phone, tablet, or computer. The same commands can be sent <em>to</em> the board over BLE, so a host can drive it remotely too.
+</p>
+
+<div class="grid">
+  <div class="card">
+    <h4>Two buttons</h4>
+    <p>Forward and Back, each debounced in firmware. Status LED flashes on every press.</p>
+  </div>
+  <div class="card">
+    <h4>BLE</h4>
+    <p>Advertises as <code>ArduinoRemote</code>. Works with the Web Bluetooth controller below, nRF Connect, or any BLE central.</p>
+  </div>
+  <div class="card">
+    <h4>No extra hardware</h4>
+    <p>Uses the ESP32-C3's built-in BLE radio. Buttons wire straight to GND (internal pull-ups).</p>
+  </div>
+</div>
+
+<h2>1. Try the controller (Web Bluetooth)</h2>
+<p>
+  Open the controller page, tap <em>Connect</em>, and choose <code>ArduinoRemote</code> from the device picker. Then press Forward / Back &mdash; the board will flash its LED and echo the command back.
+</p>
+<p class="warn">Web Bluetooth requires a secure context: serve over HTTPS (GitHub Pages works) or run on <code>localhost</code>.</p>
+<p>
+  <a class="btn" href="controller.html" target="_blank">Open controller &rarr;</a>
+</p>
+
+<h2>2. Wire it up</h2>
+<table>
+  <thead><tr><th>ESP32-C3 GPIO</th><th>Connect to</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>GPIO 8</td><td>Forward button &rarr; GND</td><td>Internal pull-up enabled; active LOW</td></tr>
+    <tr><td>GPIO 9</td><td>Back button &rarr; GND</td><td>Internal pull-up enabled; active LOW</td></tr>
+    <tr><td>GPIO 10</td><td>Status LED &rarr; 220&Omega; &rarr; GND</td><td>Optional; set <code>LED_PIN = 255</code> to disable</td></tr>
+    <tr><td>3V3 / GND</td><td>Power</td><td>USB or external 3.3&ndash;5&nbsp;V</td></tr>
+  </tbody>
+</table>
+<p>Change the pins at the top of <code>firmware/ArduinoRemote/ArduinoRemote.ino</code> if your board uses different GPIOs.</p>
+
+<h2>3. Flash the firmware</h2>
+<p>Install the Arduino CLI, then:</p>
+<pre>$ arduino-cli core update-index
+$ arduino-cli core install esp32:esp32
+$ arduino-cli compile --fqbn esp32:esp32:makergo_c3_supermini firmware/ArduinoRemote
+$ arduino-cli upload -p COM3 --fqbn esp32:esp32:makergo_c3_supermini firmware/ArduinoRemote</pre>
+<p>Board: <strong>MakerGO ESP32 C3 SuperMini</strong> (<code>esp32:esp32:makergo_c3_supermini</code>). Any ESP32-C3 board works &mdash; just pick its FQBN instead. Replace <code>COM3</code> with your serial port (<code>/dev/cu.usbmodem...</code> on Mac, <code>/dev/ttyUSB0</code> on Linux).</p>
+<p>Prefer the Arduino IDE? Open <code>firmware/ArduinoRemote/ArduinoRemote.ino</code>, select your ESP32-C3 board and port, then click Upload.</p>
+
+<h2>4. BLE protocol</h2>
+<table>
+  <thead><tr><th>UUID</th><th>Role</th><th>Properties</th><th>Values</th></tr></thead>
+  <tbody>
+    <tr><td><code>7f4f1234-1234-1234-1234-123456789abc</code></td><td>Service</td><td>&mdash;</td><td>&mdash;</td></tr>
+    <tr><td><code>7f4f1235-1234-1234-1234-123456789abc</code></td><td>RX (host &rarr; ESP32)</td><td>WRITE, WRITE_NR</td><td><code>F</code> Forward &bull; <code>B</code> Back &bull; <code>S</code> Stop</td></tr>
+    <tr><td><code>7f4f1236-1234-1234-1234-123456789abc</code></td><td>TX (ESP32 &rarr; host)</td><td>NOTIFY</td><td>Echo of the command just received</td></tr>
+  </tbody>
+</table>
+<p>Example (Web Bluetooth): write a single byte <code>0x46</code> ('F') to the RX characteristic; the ESP32 notifies back <code>0x46</code> on the TX characteristic.</p>
+
+<h2>5. Repository layout</h2>
+<pre>
+ArduinoRemote/
+├── docs/                  &lt;- GitHub Pages site
+│   ├── index.html         &lt;- this page
+│   └── controller.html    &lt;- Web Bluetooth Forward / Back controller
+├── firmware/
+│   └── ArduinoRemote/
+│       └── ArduinoRemote.ino &lt;- ESP32-C3 source (compile &amp; upload)
+├── .gitignore
+└── README.md
+</pre>
+
+<h2>6. License</h2>
+<p>MIT. Build something cool with it.</p>
+
+<div class="footer">
+  ArduinoRemote &mdash; ESP32-C3 BLE remote. Docs hosted on GitHub Pages.
+</div>
+</div>
+
+</body>
+</html>
