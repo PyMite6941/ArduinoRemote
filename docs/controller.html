@@ -129,6 +129,8 @@ let txChar = null;
 let rxChar = null;
 let rnChar = null;
 let connected = false;
+let bluetoothDevice = null;
+let gattServer = null;
 
 const statusEl = document.getElementById('status');
 const connectBtn = document.getElementById('connect');
@@ -148,57 +150,86 @@ function enableControls(en) {
   backBtn.disabled = !en;
   btnRename.disabled = !en;
   renameInput.disabled = !en;
-  connectBtn.textContent = en ? 'Connected &mdash; disconnect' : 'Connect to ArduinoRemote';
+  connectBtn.textContent = en ? 'Connected - disconnect' : 'Connect to ArduinoRemote';
+}
+
+function clearConnection() {
+  connected = false;
+  gattServer = null;
+  txChar = null;
+  rxChar = null;
+  rnChar = null;
+  enableControls(false);
 }
 
 async function connect() {
   if (!connected) {
     try {
-      const device = await navigator.bluetooth.requestDevice({
+      if (!navigator.bluetooth) {
+        throw new Error('Web Bluetooth is unavailable in this browser');
+      }
+      bluetoothDevice = await navigator.bluetooth.requestDevice({
         filters: [{ services: [SERVICE_UUID] }],
         optionalServices: [SERVICE_UUID]
       });
-      deviceNameEl.textContent = device.name || 'ArduinoRemote';
+      deviceNameEl.textContent = bluetoothDevice.name || 'ArduinoRemote';
+      bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
 
-      const server = await device.gatt.connect();
-      const service = await server.getPrimaryService(SERVICE_UUID);
-      txChar = await service.getCharacteristic(CHAR_TX_UUID);
+      gattServer = await bluetoothDevice.gatt.connect();
+      const service = await gattServer.getPrimaryService(SERVICE_UUID);
       rxChar = await service.getCharacteristic(CHAR_RX_UUID);
-      rnChar = await service.getCharacteristic(CHAR_RN_UUID);
-      await txChar.startNotifications();
-      txChar.addEventListener('characteristicvaluechanged', handleNotify);
+      try {
+        txChar = await service.getCharacteristic(CHAR_TX_UUID);
+        txChar.addEventListener('characteristicvaluechanged', handleNotify);
+        await txChar.startNotifications();
+      } catch (txError) {
+        console.warn('TX notifications unavailable:', txError);
+        txChar = null;
+      }
+      try {
+        rnChar = await service.getCharacteristic(CHAR_RN_UUID);
+      } catch (rnError) {
+        console.warn('Rename characteristic unavailable:', rnError);
+        rnChar = null;
+      }
       connected = true;
-      setStatus('Connected to ' + (device.name || 'ArduinoRemote'), 'connected');
+      setStatus(
+        txChar
+          ? 'Connected to ' + (bluetoothDevice.name || 'ArduinoRemote')
+          : 'Connected (controls only)',
+        'connected'
+      );
       enableControls(true);
-
-      server.addEventListener('gattserverdisconnected', onDisconnected);
+      btnRename.disabled = !rnChar;
     } catch (err) {
       console.error(err);
       setStatus('Connection failed: ' + err.message, 'disconnected');
     }
   } else {
-    connected = false;
-    enableControls(false);
+    if (gattServer && gattServer.connected) {
+      gattServer.disconnect();
+    } else {
+      clearConnection();
+    }
     setStatus('Not connected', 'disconnected');
-    txChar = null;
-    rxChar = null;
-    rnChar = null;
   }
 }
 
 function onDisconnected() {
-  connected = false;
-  enableControls(false);
+  clearConnection();
   setStatus('Disconnected', 'disconnected');
-  txChar = null;
-  rxChar = null;
-  rnChar = null;
 }
 
 function send(cmdChar) {
   if (!connected || !rxChar) return;
   const data = new Uint8Array([cmdChar.charCodeAt(0)]);
-  rxChar.writeValue(data).catch(err => console.error('write failed', err));
+  const write = rxChar.writeValueWithoutResponse
+    ? rxChar.writeValueWithoutResponse(data)
+    : rxChar.writeValue(data);
+  write.catch(err => {
+    console.error('write failed', err);
+    setStatus('Command failed: ' + err.message, 'disconnected');
+  });
 }
 
 function handleNotify(event) {
@@ -206,24 +237,30 @@ function handleNotify(event) {
   if (!value) return;
   const cmd = String.fromCharCode(value.getUint8(0));
   console.log('notify:', cmd);
+  if (cmd === 'R') {
+    setStatus('Rename accepted. Reconnect to ' + (renameInput.value.trim() || 'the new name'), 'connected');
+  } else if (cmd === 'r') {
+    setStatus('Rename rejected: invalid name', 'disconnected');
+  }
 }
 
 async function renameDevice() {
   if (!connected || !rnChar) return;
   const newName = renameInput.value.trim();
-  if (!newName || newName.length > 31) {
-    setStatus('Name must be 1-31 characters', 'disconnected');
+  const isValidAscii = /^[\x20-\x7E]+$/.test(newName);
+  if (!newName || newName.length > 31 || !isValidAscii) {
+    setStatus('Name must be 1-31 printable ASCII characters', 'disconnected');
     return;
   }
   try {
     const encoder = new TextEncoder();
     await rnChar.writeValue(encoder.encode(newName));
-    setStatus('Renaming to &ldquo;' + newName + '&rdquo;&hellip;', 'connected');
+    setStatus('Renaming to "' + newName + '"...', 'connected');
     // Device restarts with new name; connection drops
     setTimeout(() => {
       connected = false;
       enableControls(false);
-      setStatus('Device restarted. Reconnect to &ldquo;' + newName + '&rdquo;', 'connected');
+      setStatus('Device restarted. Reconnect to "' + newName + '"', 'connected');
     }, 1500);
   } catch (err) {
     console.error(err);
@@ -232,10 +269,8 @@ async function renameDevice() {
 }
 
 connectBtn.addEventListener('click', connect);
-fwdBtn.addEventListener('mousedown', () => send('F'));
-fwdBtn.addEventListener('touchstart', (e) => { e.preventDefault(); send('F'); }, {passive:false});
-backBtn.addEventListener('mousedown', () => send('B'));
-backBtn.addEventListener('touchstart', (e) => { e.preventDefault(); send('B'); }, {passive:false});
+fwdBtn.addEventListener('click', () => send('F'));
+backBtn.addEventListener('click', () => send('B'));
 btnRename.addEventListener('click', renameDevice);
 renameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') renameDevice(); });
 

@@ -69,6 +69,8 @@ static const uint32_t DEBOUNCE_MS = 50;
 // Forward declarations
 static void handleCommand(char cmd);
 static void restartWithNewName();
+static bool isValidDeviceName(const char* name, size_t length);
+static void handlePairingResponse(uint32_t pin, bool accept);
 
 // ===========================================================================
 // BLE globals
@@ -82,6 +84,7 @@ static BLECharacteristic* pRenameChar = nullptr;
 static bool deviceConnected = false;
 static bool oldDeviceConnected = false;
 static bool pendingRestart = false;
+static uint32_t renameRestartAt = 0;
 
 // Device name (loaded from Preferences, mutable)
 static char deviceName[32] = {0};
@@ -119,6 +122,34 @@ class ServerCallbacks : public BLEServerCallbacks {
     deviceConnected = false;
     if (LED_PIN != 255) digitalWrite(LED_PIN, LOW);
     Serial.println("[BLE] Client disconnected");
+  }
+};
+
+// ===========================================================================
+// BLE security / pairing callbacks (accept "Just Works" pairing)
+// ===========================================================================
+class SecurityCallbacks : public BLESecurityCallbacks {
+  uint32_t onPassKeyRequest() override {
+    Serial.println("[BLE] Passkey request - using 000000");
+    return 0;
+  }
+  void onPassKeyNotify(uint32_t pass_key) override {
+    (void)pass_key;
+    Serial.println("[BLE] Passkey notified");
+  }
+  bool onSecurityRequest() override {
+    Serial.println("[BLE] Security request - accepting pairing");
+    return true;
+  }
+  bool onConfirmPIN(uint32_t pin) override {
+    (void)pin;
+    Serial.println("[BLE] Pairing confirm requested (Just Works)");
+    return true;
+  }
+  bool onAuthorizationRequest(uint16_t connHandle, uint16_t attrHandle, bool isRead) override {
+    (void)connHandle; (void)attrHandle; (void)isRead;
+    Serial.println("[BLE] Authorization request - granting");
+    return true;
   }
 };
 
@@ -172,11 +203,29 @@ class RenameCallbacks : public BLECharacteristicCallbacks {
     // Copy into a null-terminated char buffer
     char newName[32] = {0};
     value.toCharArray(newName, sizeof(newName));
+    if (!isValidDeviceName(newName, value.length())) {
+      Serial.println("[RENAME] Invalid device name");
+      if (pTxChar && deviceConnected) {
+        char fail = CMD_RENAME_FAIL;
+        pTxChar->setValue((const uint8_t*)&fail, 1);
+        pTxChar->notify();
+      }
+      return;
+    }
 
     // Store in Preferences (NVS) so it survives reboot
     preferences.begin(PREF_NAMESPACE, false);  // false = read/write
-    preferences.putString(PREF_KEY_NAME, newName);
+    const bool saved = preferences.putString(PREF_KEY_NAME, newName) == value.length();
     preferences.end();
+    if (!saved) {
+      Serial.println("[RENAME] Failed to store name");
+      if (pTxChar && deviceConnected) {
+        char fail = CMD_RENAME_FAIL;
+        pTxChar->setValue((const uint8_t*)&fail, 1);
+        pTxChar->notify();
+      }
+      return;
+    }
 
     // Update in-memory name
     strncpy(deviceName, newName, sizeof(deviceName) - 1);
@@ -193,6 +242,7 @@ class RenameCallbacks : public BLECharacteristicCallbacks {
     }
 
     pendingRestart = true;
+    renameRestartAt = millis() + 750;
   }
 };
 
@@ -217,6 +267,16 @@ static void blinkLED(uint8_t times, uint16_t ms) {
   }
 }
 
+static bool isValidDeviceName(const char* name, size_t length) {
+  if (!name || length == 0 || length > MAX_DEVICE_NAME_LEN) return false;
+  if (name[0] == ' ' || name[length - 1] == ' ') return false;
+  for (size_t i = 0; i < length; ++i) {
+    const unsigned char ch = static_cast<unsigned char>(name[i]);
+    if (ch < 32 || ch > 126) return false;
+  }
+  return true;
+}
+
 // Restart the device so it boots with the new BLE name.
 static void restartWithNewName() {
   Serial.print("[BLE] Restarting with new name: ");
@@ -231,20 +291,19 @@ static void restartWithNewName() {
 void setup() {
   Serial.begin(115200);
 
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  if (LED_PIN != 255) {
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, LOW);
+  }
 
   pinMode(BUTTON_FORWARD_PIN, INPUT_PULLUP);
   pinMode(BUTTON_BACK_PIN,    INPUT_PULLUP);
-
-  Serial.print("Device name: ");
-  Serial.println(deviceName);
 
   // --- Load device name from Preferences (NVS) ---
   preferences.begin(PREF_NAMESPACE, true);  // true = read-only
   String savedName = preferences.getString(PREF_KEY_NAME, DEFAULT_DEVICE_NAME);
   preferences.end();
-  if (savedName.length() > 0 && savedName.length() <= MAX_DEVICE_NAME_LEN) {
+  if (isValidDeviceName(savedName.c_str(), savedName.length())) {
     savedName.toCharArray(deviceName, sizeof(deviceName));
   } else {
     strncpy(deviceName, DEFAULT_DEVICE_NAME, sizeof(deviceName) - 1);
@@ -258,6 +317,8 @@ void setup() {
 
   // --- BLE ---
   BLEDevice::init(deviceName);
+  BLEDevice::setMTU(247);
+  BLEDevice::setSecurityCallbacks(new SecurityCallbacks());
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
 
@@ -298,6 +359,8 @@ void setup() {
   BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->setAdvertisementData(advData);
   pAdvertising->setScanResponseData(scanData);
+  pAdvertising->setMinInterval(0x20);
+  pAdvertising->setMaxInterval(0x40);
   pAdvertising->setMinPreferred(0x06);  // helps iOS connect
   BLEDevice::startAdvertising();
 
@@ -322,7 +385,7 @@ void loop() {
   }
 
   // Restart the device with a new name after a rename
-  if (pendingRestart) {
+  if (pendingRestart && (int32_t)(millis() - renameRestartAt) >= 0) {
     pendingRestart = false;
     restartWithNewName();
   }

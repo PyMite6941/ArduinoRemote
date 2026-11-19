@@ -103,15 +103,24 @@ $ arduino-cli upload -p COM3 --fqbn esp32:esp32:makergo_c3_supermini firmware/Ar
 
 <h2>4.5. Renaming the device</h2>
 <p>
-  The BLE device name is stored in ESP32 Preferences (NVS), so it survives reboot. To rename:
+  The BLE device name is stored in ESP32 Preferences (NVS), so it survives reboot. Names must be 1&ndash;31 printable ASCII characters and cannot start or end with a space.
 </p>
 <ol>
   <li>Open <a href="controller.html">controller.html</a> and tap <em>Connect</em>.</li>
-  <li>Type a new name (1&ndash;31 characters) in the <em>Rename device</em> field.</li>
+  <li>Type a 1&ndash;31 character printable ASCII name in the <em>Rename device</em> field.</li>
   <li>Tap <em>Rename</em>. The firmware writes the name to NVS, confirms via the TX characteristic, then restarts.</li>
   <li>After restart, the device advertises under the new name. Reconnect to it.</li>
 </ol>
 <p class="warn">Renaming causes the ESP32 to soft-reboot so the new name takes effect in BLE advertising. Any active connection will drop.</p>
+
+<h2>Connection troubleshooting</h2>
+<ul>
+  <li>Use Chrome or Edge over HTTPS or <code>localhost</code>.</li>
+  <li>Wait several seconds after flashing or renaming, then scan again.</li>
+  <li>Choose the device advertising the <code>7f4f1234-...</code> service. Remove stale OS Bluetooth entries if discovery is inconsistent.</li>
+  <li>The serial monitor at 115200 baud should print <code>Client connected</code>, followed by <code>RX command: F</code>, <code>B</code>, or <code>S</code>.</li>
+  <li>Forward / Back use the RX characteristic without a response, while TX notifications are optional.</li>
+</ul>
 
 <h2>5. Repository layout</h2>
 <pre>
