@@ -45,8 +45,8 @@ static const char* PREF_KEY_NAME  = "name";
 static const size_t MAX_DEVICE_NAME_LEN = 31;  // BLE device name max
 
 // Buttons (active LOW, wire to GND, internal pull-up)
-static const uint8_t BUTTON_FORWARD_PIN = 8;
-static const uint8_t BUTTON_BACK_PIN    = 9;
+static const uint8_t BUTTON_FORWARD_PIN = 0;
+static const uint8_t BUTTON_BACK_PIN    = 1;
 
 // Status LED (set 255 to disable)
 static const uint8_t LED_PIN = 10;
@@ -70,7 +70,6 @@ static const uint32_t DEBOUNCE_MS = 50;
 static void handleCommand(char cmd);
 static void restartWithNewName();
 static bool isValidDeviceName(const char* name, size_t length);
-static void handlePairingResponse(uint32_t pin, bool accept);
 
 // ===========================================================================
 // BLE globals
@@ -318,6 +317,11 @@ void setup() {
   // --- BLE ---
   BLEDevice::init(deviceName);
   BLEDevice::setMTU(247);
+
+  // Configure security parameters so OS pairing (Just Works) succeeds
+  BLESecurity::setAuthenticationMode(ESP_LE_AUTH_NO_BOND);
+  BLESecurity::setCapability(ESP_IO_CAP_NONE);
+
   BLEDevice::setSecurityCallbacks(new SecurityCallbacks());
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
