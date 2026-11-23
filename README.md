@@ -22,7 +22,7 @@ ESP32-C3 SuperMini Bluetooth Low Energy remote control. Two buttons &mdash; **Fo
 
 ```bash
 arduino-cli core update-index
-arduino-cli core install esp32:esp32
+arduino-cli core install esp32:esp32@3.3.10   # 4.x removed the BLE library this sketch uses
 arduino-cli compile --fqbn esp32:esp32:makergo_c3_supermini firmware/ArduinoRemote
 arduino-cli upload -p COM3 --fqbn esp32:esp32:makergo_c3_supermini firmware/ArduinoRemote
 ```

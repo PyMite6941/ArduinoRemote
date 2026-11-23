@@ -83,7 +83,7 @@
 <h2>3. Flash the firmware</h2>
 <p>Install the Arduino CLI, then:</p>
 <pre>$ arduino-cli core update-index
-$ arduino-cli core install esp32:esp32
+$ arduino-cli core install esp32:esp32@3.3.10   # 4.x removed the BLE library this sketch uses
 $ arduino-cli compile --fqbn esp32:esp32:makergo_c3_supermini firmware/ArduinoRemote
 $ arduino-cli upload -p COM3 --fqbn esp32:esp32:makergo_c3_supermini firmware/ArduinoRemote</pre>
 <p>Board: <strong>MakerGO ESP32 C3 SuperMini</strong> (<code>esp32:esp32:makergo_c3_supermini</code>). Any ESP32-C3 board works &mdash; just pick its FQBN instead. Replace <code>COM3</code> with your serial port (<code>/dev/cu.usbmodem...</code> on Mac, <code>/dev/ttyUSB0</code> on Linux).</p>

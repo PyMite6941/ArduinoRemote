@@ -16,6 +16,7 @@
  *
  * Flash with the Arduino IDE or arduino-cli:
  *   Board: "MakerGO ESP32 C3 SuperMini"  (esp32:esp32:makergo_c3_supermini)
+ *   Core:  esp32:esp32 3.3.x (core 4.x dropped the BLE library used here)
  *   or any ESP32-C3 board. The ESP32-C3 BLE radio is used; no external module.
  *
  * Pair / connect from:
