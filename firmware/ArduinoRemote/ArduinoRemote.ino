@@ -8,8 +8,10 @@
  *     characteristic) so a host can drive it remotely.
  *
  * Pins (edit the CONFIG section below to match your board):
- *   BUTTON_FORWARD_PIN  GPIO 8  -> forward button (other leg to GND)
- *   BUTTON_BACK_PIN     GPIO 9  -> back button    (other leg to GND)
+ *   BUTTON_FORWARD_PIN  GPIO 0  -> forward button (other leg to GND)
+ *   BUTTON_BACK_PIN     GPIO 1  -> back button    (other leg to GND)
+ *   (Avoid GPIO 2/8/9 for buttons: they are boot strapping pins, and GPIO 9
+ *    is the SuperMini's BOOT button.)
  *   LED_PIN             GPIO 10 -> status LED     (optional, set 255 to skip)
  *
  * Flash with the Arduino IDE or arduino-cli:
@@ -30,9 +32,6 @@
 #include <BLECharacteristic.h>
 #include <BLE2902.h>
 #include <BLEAdvertising.h>
-
-// ESP-IDF GAP function to set the BLE device name at runtime
-extern "C" uint8_t esp_ble_gap_set_device_name(const char *name);
 
 // ===========================================================================
 // CONFIG
@@ -70,6 +69,8 @@ static const uint32_t DEBOUNCE_MS = 50;
 static void handleCommand(char cmd);
 static void restartWithNewName();
 static bool isValidDeviceName(const char* name, size_t length);
+struct Button;
+static void checkButton(Button& b, uint32_t now);
 
 // ===========================================================================
 // BLE globals
@@ -264,6 +265,8 @@ static void blinkLED(uint8_t times, uint16_t ms) {
     digitalWrite(LED_PIN, LOW);
     if (i + 1 < times) delay(ms);
   }
+  // LED stays solid while a client is connected
+  digitalWrite(LED_PIN, deviceConnected ? HIGH : LOW);
 }
 
 static bool isValidDeviceName(const char* name, size_t length) {
@@ -339,7 +342,10 @@ void setup() {
   pTxChar = pService->createCharacteristic(
       CHARACTERISTIC_TX_UUID,
       BLECharacteristic::PROPERTY_NOTIFY);
+#if !defined(CONFIG_NIMBLE_ENABLED)
+  // Bluedroid (older cores) needs the CCCD added by hand; NimBLE adds it itself.
   pTxChar->addDescriptor(new BLE2902());
+#endif
 
   // RN: host writes a new device name to rename the BLE device
   pRenameChar = pService->createCharacteristic(

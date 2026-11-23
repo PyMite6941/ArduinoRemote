@@ -9,13 +9,13 @@ ESP32-C3 SuperMini Bluetooth Low Energy remote control. Two buttons &mdash; **Fo
 | `firmware/ArduinoRemote/ArduinoRemote.ino` | ESP32-C3 source. Compile & upload with Arduino IDE or `arduino-cli`. |
 | `docs/index.html` | GitHub Pages site &mdash; wiring diagram, flash steps, BLE protocol table. |
 | `docs/controller.html` | Web Bluetooth controller with Forward / Back buttons (works on GitHub Pages over HTTPS). |
-| `.github/workflows/` | CI: compile check on every push. |
+| `.github/workflows/` | CI: firmware compile check + GitHub Pages deploy of `docs/` on every push to `master`. |
 
 ## Hardware
 
 - Board: any ESP32-C3 (tested on **MakerGO ESP32 C3 SuperMini**)
-- GPIO 8 &rarr; Forward button &rarr; GND (active LOW, internal pull-up)
-- GPIO 9 &rarr; Back button &rarr; GND (active LOW, internal pull-up)
+- GPIO 0 &rarr; Forward button &rarr; GND (active LOW, internal pull-up)
+- GPIO 1 &rarr; Back button &rarr; GND (active LOW, internal pull-up)
 - GPIO 10 &rarr; LED &rarr; 220&Omega; &rarr; GND (optional; set `LED_PIN = 255` to skip)
 
 ## Flash
@@ -33,7 +33,7 @@ Replace `COM3` with your serial port. Or open the `.ino` in the Arduino IDE, pic
 
 - Service: `7f4f1234-1234-1234-1234-123456789abc`
 - RX (write): `7f4f1235-...` &mdash; host sends `F` (forward), `B` (back), `S` (stop)
-- TX (notify): `7f4f1236-...` &mdash; ESP32 echoes each command back
+- TX (notify): `7f4f1236-...` &mdash; sends `F`/`B` when a physical button is pressed, echoes each RX command, and reports rename result (`R` ok / `r` failed)
 - RN (write): `7f4f1237-...` &mdash; host writes a new device name string to rename the BLE device. Name is stored in ESP32 Preferences (NVS) and survives reboot. Device soft-reboots after rename.
 
 ## Renaming the device

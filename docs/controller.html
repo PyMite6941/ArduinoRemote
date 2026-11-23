@@ -90,6 +90,9 @@
   button.rename:disabled { opacity: 0.5; cursor: not-allowed; }
   .hint { font-size: 0.75rem; color: #666; text-align:center; line-height: 1.4; margin-top: 12px; }
   code { color: #45a29e; }
+  .log { background:#0b0c10; border:1px solid #45a29e; border-radius:8px; padding:8px 10px; height:7.5rem; overflow-y:auto; font:0.78rem ui-monospace, SFMono-Regular, monospace; color:#888; margin-bottom:4px; }
+  .log .hw { color:#66fcf1; font-weight:700; }
+  button.flash { filter: brightness(1.4); transform: scale(0.96); }
 </style>
 </head>
 <body>
@@ -104,9 +107,12 @@
   <button id="connect" class="connect">Connect to ArduinoRemote</button>
 
   <div class="btns">
-    <button id="btnForward" class="forward" disabled>Forward &uarr;</button>
-    <button id="btnBack" class="back" disabled>Back &darr;</button>
+    <button id="btnBack" class="back" disabled>&larr; Back</button>
+    <button id="btnForward" class="forward" disabled>Forward &rarr;</button>
   </div>
+
+  <div class="log" id="log" aria-live="polite"></div>
+  <p class="hint" style="margin-top:4px">Keyboard: &rarr; / PageDown = Forward, &larr; / PageUp = Back</p>
 
   <div class="rename-section">
     <h3>Rename device</h3>
@@ -116,7 +122,7 @@
 
   <p class="hint">Tap &ldquo;Connect&rdquo; and choose <code>ArduinoRemote</code>.<br>
   Press Forward / Back to send commands over BLE.<br>
-  Status LED flashes on each press.</p>
+  Presses of the board's physical buttons appear in the log.</p>
 </div>
 
 <script>
@@ -139,6 +145,23 @@ const backBtn = document.getElementById('btnBack');
 const renameInput = document.getElementById('renameInput');
 const btnRename = document.getElementById('btnRename');
 const deviceNameEl = document.getElementById('deviceName');
+const logEl = document.getElementById('log');
+const CMD_NAMES = { F: 'FORWARD', B: 'BACK', S: 'STOP' };
+let pendingEchoes = 0;   // commands we sent whose echo has not come back yet
+let renaming = false;
+
+function log(text, isHardware) {
+  const line = document.createElement('div');
+  if (isHardware) line.className = 'hw';
+  line.textContent = new Date().toLocaleTimeString() + '  ' + text;
+  logEl.prepend(line);
+  while (logEl.childNodes.length > 50) logEl.removeChild(logEl.lastChild);
+}
+
+function flash(btn) {
+  btn.classList.add('flash');
+  setTimeout(() => btn.classList.remove('flash'), 150);
+}
 
 function setStatus(txt, cls) {
   statusEl.textContent = txt;
@@ -201,6 +224,8 @@ async function connect() {
       );
       enableControls(true);
       btnRename.disabled = !rnChar;
+      pendingEchoes = 0;
+      log('Connected to ' + (bluetoothDevice.name || 'ArduinoRemote'));
     } catch (err) {
       console.error(err);
       setStatus('Connection failed: ' + err.message, 'disconnected');
@@ -217,12 +242,20 @@ async function connect() {
 
 function onDisconnected() {
   clearConnection();
-  setStatus('Disconnected', 'disconnected');
+  if (renaming) {
+    renaming = false;
+    setStatus('Device restarting. Reconnect to "' + renameInput.value.trim() + '"', 'connected');
+  } else {
+    setStatus('Disconnected', 'disconnected');
+  }
+  log('Disconnected');
 }
 
 function send(cmdChar) {
   if (!connected || !rxChar) return;
   const data = new Uint8Array([cmdChar.charCodeAt(0)]);
+  if (txChar) pendingEchoes++;
+  log('Sent ' + CMD_NAMES[cmdChar]);
   const write = rxChar.writeValueWithoutResponse
     ? rxChar.writeValueWithoutResponse(data)
     : rxChar.writeValue(data);
@@ -236,7 +269,18 @@ function handleNotify(event) {
   const value = event.target.value;
   if (!value) return;
   const cmd = String.fromCharCode(value.getUint8(0));
-  console.log('notify:', cmd);
+  if (CMD_NAMES[cmd]) {
+    if (pendingEchoes > 0) {
+      pendingEchoes--;          // echo of a command this page sent
+    } else {
+      // Physical button pressed on the board
+      log('Board button: ' + CMD_NAMES[cmd], true);
+      if (cmd === 'F') flash(fwdBtn);
+      if (cmd === 'B') flash(backBtn);
+      document.dispatchEvent(new CustomEvent('arduinoremote', { detail: cmd }));
+    }
+    return;
+  }
   if (cmd === 'R') {
     setStatus('Rename accepted. Reconnect to ' + (renameInput.value.trim() || 'the new name'), 'connected');
   } else if (cmd === 'r') {
@@ -254,15 +298,13 @@ async function renameDevice() {
   }
   try {
     const encoder = new TextEncoder();
+    renaming = true;
     await rnChar.writeValue(encoder.encode(newName));
     setStatus('Renaming to "' + newName + '"...', 'connected');
-    // Device restarts with new name; connection drops
-    setTimeout(() => {
-      connected = false;
-      enableControls(false);
-      setStatus('Device restarted. Reconnect to "' + newName + '"', 'connected');
-    }, 1500);
+    log('Rename requested: ' + newName);
+    // The board stores the name and restarts; onDisconnected handles the rest.
   } catch (err) {
+    renaming = false;
     console.error(err);
     setStatus('Rename failed: ' + err.message, 'disconnected');
   }
@@ -273,6 +315,11 @@ fwdBtn.addEventListener('click', () => send('F'));
 backBtn.addEventListener('click', () => send('B'));
 btnRename.addEventListener('click', renameDevice);
 renameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') renameDevice(); });
+document.addEventListener('keydown', (e) => {
+  if (e.target === renameInput || !connected) return;
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); flash(fwdBtn); send('F'); }
+  if (e.key === 'ArrowLeft'  || e.key === 'PageUp')   { e.preventDefault(); flash(backBtn); send('B'); }
+});
 
 // Web Bluetooth requires a secure context (HTTPS or localhost)
 if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {

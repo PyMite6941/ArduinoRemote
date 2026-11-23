@@ -72,8 +72,8 @@
 <table>
   <thead><tr><th>ESP32-C3 GPIO</th><th>Connect to</th><th>Notes</th></tr></thead>
   <tbody>
-    <tr><td>GPIO 8</td><td>Forward button &rarr; GND</td><td>Internal pull-up enabled; active LOW</td></tr>
-    <tr><td>GPIO 9</td><td>Back button &rarr; GND</td><td>Internal pull-up enabled; active LOW</td></tr>
+    <tr><td>GPIO 0</td><td>Forward button &rarr; GND</td><td>Internal pull-up enabled; active LOW</td></tr>
+    <tr><td>GPIO 1</td><td>Back button &rarr; GND</td><td>Internal pull-up enabled; active LOW</td></tr>
     <tr><td>GPIO 10</td><td>Status LED &rarr; 220&Omega; &rarr; GND</td><td>Optional; set <code>LED_PIN = 255</code> to disable</td></tr>
     <tr><td>3V3 / GND</td><td>Power</td><td>USB or external 3.3&ndash;5&nbsp;V</td></tr>
   </tbody>
@@ -95,7 +95,7 @@ $ arduino-cli upload -p COM3 --fqbn esp32:esp32:makergo_c3_supermini firmware/Ar
   <tbody>
     <tr><td><code>7f4f1234-1234-1234-1234-123456789abc</code></td><td>Service</td><td>&mdash;</td><td>&mdash;</td></tr>
     <tr><td><code>7f4f1235-1234-1234-1234-123456789abc</code></td><td>RX (host &rarr; ESP32)</td><td>WRITE, WRITE_NR</td><td><code>F</code> Forward &bull; <code>B</code> Back &bull; <code>S</code> Stop</td></tr>
-    <tr><td><code>7f4f1236-1234-1234-1234-123456789abc</code></td><td>TX (ESP32 &rarr; host)</td><td>NOTIFY</td><td>Echo of the command just received</td></tr>
+    <tr><td><code>7f4f1236-1234-1234-1234-123456789abc</code></td><td>TX (ESP32 &rarr; host)</td><td>NOTIFY</td><td><code>F</code>/<code>B</code> when a physical button is pressed; echo of each RX command; <code>R</code>/<code>r</code> rename OK/failed</td></tr>
     <tr><td><code>7f4f1237-1234-1234-1234-123456789abc</code></td><td>RN (host &rarr; ESP32)</td><td>WRITE, WRITE_NR</td><td>New device name string (rename; stored in NVS)</td></tr>
   </tbody>
 </table>
@@ -127,10 +127,12 @@ $ arduino-cli upload -p COM3 --fqbn esp32:esp32:makergo_c3_supermini firmware/Ar
 ArduinoRemote/
 ├── docs/                  &lt;- GitHub Pages site
 │   ├── index.html         &lt;- this page
-│   └── controller.html    &lt;- Web Bluetooth Forward / Back controller
+│   ├── controller.html    &lt;- Web Bluetooth Forward / Back controller
+│   └── connect.html       &lt;- redirect to controller.html
 ├── firmware/
 │   └── ArduinoRemote/
 │       └── ArduinoRemote.ino &lt;- ESP32-C3 source (compile &amp; upload)
+├── .github/workflows/     &lt;- compile check + Pages deploy
 ├── .gitignore
 └── README.md
 </pre>
