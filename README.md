@@ -9,6 +9,7 @@ ESP32-C3 SuperMini Bluetooth Low Energy remote control. Two buttons &mdash; **Fo
 | `firmware/ArduinoRemote/ArduinoRemote.ino` | ESP32-C3 source. Compile & upload with Arduino IDE or `arduino-cli`. |
 | `docs/index.html` | GitHub Pages site &mdash; wiring diagram, flash steps, BLE protocol table. |
 | `docs/controller.html` | Web Bluetooth controller with Forward / Back buttons (works on GitHub Pages over HTTPS). |
+| `hardware/` | KiCad 8 schematic (wiring), symbol library, parts list. |
 | `.github/workflows/` | CI: firmware compile check + GitHub Pages deploy of `docs/` on every push to `master`. |
 
 ## Hardware
@@ -17,6 +18,8 @@ ESP32-C3 SuperMini Bluetooth Low Energy remote control. Two buttons &mdash; **Fo
 - GPIO 0 &rarr; Forward button &rarr; GND (active LOW, internal pull-up)
 - GPIO 1 &rarr; Back button &rarr; GND (active LOW, internal pull-up)
 - GPIO 10 &rarr; LED &rarr; 220&Omega; &rarr; GND (optional; set `LED_PIN = 255` to skip)
+
+Full schematic and parts list: [`hardware/`](hardware/README.md) (KiCad 8+).
 
 ## Flash
 

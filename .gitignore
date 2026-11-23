@@ -18,3 +18,10 @@ Thumbs.db
 .vscode/
 .idea/
 *.sublime-project
+
+# KiCad
+*-backups/
+*.kicad_prl
+~*.lck
+_autosave-*
+fp-info-cache

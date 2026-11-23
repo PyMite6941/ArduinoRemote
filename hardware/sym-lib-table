@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "ArduinoRemote")(type "KiCad")(uri "${KIPRJMOD}/ArduinoRemote.kicad_sym")(options "")(descr "ESP32-C3 SuperMini module symbol"))
+)
